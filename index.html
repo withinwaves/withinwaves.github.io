@@ -1,3 +1,271 @@
-<html>
-    Coming Soon
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#05020b">
+  <title>Rainbow Waves</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #05020b;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      cursor: crosshair;
+      touch-action: none;
+      user-select: none;
+    }
+
+    canvas {
+      position: fixed;
+      inset: 0;
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="waves" aria-label="Interactive rainbow wave bar visual"></canvas>
+
+  <script>
+    const canvas = document.getElementById("waves");
+    const ctx = canvas.getContext("2d", { alpha: false });
+    const pointer = {
+      x: innerWidth * 0.5,
+      y: innerHeight * 0.5,
+      targetX: innerWidth * 0.5,
+      targetY: innerHeight * 0.5,
+      lastX: innerWidth * 0.5,
+      lastY: innerHeight * 0.5,
+      speed: 0,
+      energy: 0
+    };
+    let width = 0;
+    let height = 0;
+    let dpr = 1;
+    let bars = [];
+    const palette = ["#556270", "#4ECDC4", "#C7F464", "#FF6B6B", "#C44D58"];
+
+    function hexToRgb(hex) {
+      const value = Number.parseInt(hex.slice(1), 16);
+      return {
+        r: (value >> 16) & 255,
+        g: (value >> 8) & 255,
+        b: value & 255
+      };
+    }
+
+    function mixColor(a, b, amount) {
+      const colorA = hexToRgb(a);
+      const colorB = hexToRgb(b);
+      const r = Math.round(colorA.r + (colorB.r - colorA.r) * amount);
+      const g = Math.round(colorA.g + (colorB.g - colorA.g) * amount);
+      const bValue = Math.round(colorA.b + (colorB.b - colorA.b) * amount);
+      return `rgb(${r}, ${g}, ${bValue})`;
+    }
+
+    function paletteColor(position, shift = 0) {
+      const wrapped = ((position + shift) % 1 + 1) % 1;
+      const scaled = wrapped * palette.length;
+      const index = Math.floor(scaled) % palette.length;
+      const next = (index + 1) % palette.length;
+      return mixColor(palette[index], palette[next], scaled - index);
+    }
+
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      buildBars();
+    }
+
+    function buildBars() {
+      const count = Math.max(8, Math.min(15, Math.round(width / 130)));
+      const barWidth = width / count;
+      bars = Array.from({ length: count }, (_, index) => ({
+        x: index * barWidth,
+        width: barWidth,
+        colorPosition: index / count,
+        offset: index * 0.48
+      }));
+    }
+
+    function onMove(event) {
+      const touch = event.touches && event.touches[0];
+      const x = touch ? touch.clientX : event.clientX;
+      const y = touch ? touch.clientY : event.clientY;
+      const movement = Math.hypot(x - pointer.lastX, y - pointer.lastY);
+
+      pointer.targetX = x;
+      pointer.targetY = y;
+      pointer.lastX = x;
+      pointer.lastY = y;
+      pointer.speed = Math.min(1, movement / 34);
+      pointer.energy = Math.min(1, pointer.energy + pointer.speed * 0.48);
+    }
+
+    function expandedBarLayout(layer) {
+      if (!bars.length) return [];
+
+      const baseWidth = width / bars.length;
+      const hoverIndex = Math.max(0, Math.min(bars.length - 1, Math.floor(pointer.x / Math.max(1, baseWidth))));
+      const weights = bars.map((_, index) => {
+        const distance = Math.abs(index - hoverIndex);
+        const influence = Math.max(0, 1 - distance / 2.6);
+        return 1 + influence * layer.expand * (0.45 + pointer.energy * 0.75);
+      });
+      const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+      const availableWidth = width + layer.bleed * 2;
+      const layout = [];
+      let x = -layer.bleed + layer.offsetX;
+
+      weights.forEach((weight, index) => {
+        const w = availableWidth * (weight / totalWeight);
+        layout.push({
+          bar: bars[index],
+          center: x + w * 0.5,
+          index,
+          left: x,
+          right: x + w,
+          width: w
+        });
+        x += w;
+      });
+
+      return layout;
+    }
+
+    function drawWaveLayer(time, layer) {
+      const t = time * 0.001;
+      const influenceX = (pointer.x / Math.max(1, width) - 0.5) * 2;
+      const influenceY = (pointer.y / Math.max(1, height) - 0.5) * 2;
+      const waveEnergy = 0.28 + pointer.energy * 1.1;
+      const slices = 28;
+      const layout = expandedBarLayout(layer);
+      const edgeRange = width / Math.max(1, bars.length) * 1.4;
+
+      ctx.save();
+      ctx.globalAlpha = layer.alpha;
+
+      layout.forEach(({ bar, center, index, left, right, width: barRenderWidth }) => {
+        const proximity = Math.max(0, 1 - Math.abs(pointer.x - center) / Math.max(1, barRenderWidth * 1.45));
+        const wave = Math.sin(t * 1.05 + bar.offset + layer.phase + influenceY * 1.2);
+        const amplitude = (8 + proximity * 36) * waveEnergy * layer.amplitude;
+        const colorShift = Math.sin(t * 0.12 + influenceX * 0.3) * 0.025 + layer.colorShift;
+        const leftColor = paletteColor(bar.colorPosition, colorShift - 0.035);
+        const midColor = paletteColor(bar.colorPosition, colorShift + 0.045 + wave * 0.01);
+        const rightColor = paletteColor(bar.colorPosition, colorShift + 0.12);
+
+        const stripe = ctx.createLinearGradient(left, 0, right, height);
+        stripe.addColorStop(0, leftColor);
+        stripe.addColorStop(0.48, midColor);
+        stripe.addColorStop(1, rightColor);
+        ctx.fillStyle = stripe;
+
+        const edgeX = (edgeIndex, baseX, yNorm) => {
+          const edgeDistance = Math.abs(pointer.x - baseX);
+          const edgeProximity = Math.max(0, 1 - edgeDistance / Math.max(1, edgeRange));
+          const edgeAmplitude = (8 + edgeProximity * 36) * waveEnergy * layer.amplitude;
+          const edgeWave = Math.sin(t * 1.9 + edgeIndex * 0.48 + layer.phase + yNorm * 8.4);
+          const ripple = Math.sin(t * 3.2 + edgeIndex * 0.8 + layer.phase + yNorm * 18 + influenceY) * edgeAmplitude * 0.16 * pointer.energy;
+          const edgeBulge = Math.sin((yNorm - 0.5) * Math.PI) * edgeProximity * pointer.energy * 16;
+          return baseX + edgeWave * edgeAmplitude + ripple + edgeBulge;
+        };
+
+        ctx.beginPath();
+        for (let slice = 0; slice <= slices; slice += 1) {
+          const y = (slice / slices) * height;
+          const yNorm = slice / slices;
+          const x = edgeX(index, left, yNorm);
+          if (slice === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        for (let slice = slices; slice >= 0; slice -= 1) {
+          const y = (slice / slices) * height;
+          const yNorm = slice / slices;
+          ctx.lineTo(edgeX(index + 1, right, yNorm), y);
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        if (layer.highlight && proximity > 0.05) {
+          ctx.fillStyle = `rgba(255, 255, 255, ${proximity * (0.035 + pointer.energy * 0.04)})`;
+          ctx.fill();
+        }
+      });
+
+      ctx.restore();
+    }
+
+    function draw(time) {
+      pointer.x += (pointer.targetX - pointer.x) * 0.075;
+      pointer.y += (pointer.targetY - pointer.y) * 0.075;
+      pointer.energy *= 0.965;
+
+      ctx.fillStyle = "#556270";
+      ctx.fillRect(0, 0, width, height);
+
+      drawWaveLayer(time, {
+        alpha: 0.58,
+        amplitude: 0.78,
+        bleed: 66,
+        colorShift: 0.13,
+        expand: 0.9,
+        highlight: false,
+        offsetX: 42,
+        phase: 1.8
+      });
+      drawWaveLayer(time, {
+        alpha: 1,
+        amplitude: 1,
+        bleed: 46,
+        colorShift: 0,
+        expand: 1.45,
+        highlight: true,
+        offsetX: 0,
+        phase: 0
+      });
+
+      ctx.save();
+      ctx.globalCompositeOperation = "multiply";
+      const vignette = ctx.createRadialGradient(width * 0.5, height * 0.48, Math.min(width, height) * 0.18, width * 0.5, height * 0.5, Math.max(width, height) * 0.7);
+      vignette.addColorStop(0, "rgba(255,255,255,0.96)");
+      vignette.addColorStop(1, "rgba(0,0,0,0.28)");
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, width, height);
+      ctx.restore();
+
+      requestAnimationFrame(animate);
+    }
+
+    function animate(time) {
+      draw(time);
+    }
+
+    window.addEventListener("resize", resize);
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("pointerdown", onMove, { passive: true });
+    window.addEventListener("touchmove", onMove, { passive: true });
+    window.addEventListener("touchstart", onMove, { passive: true });
+
+    resize();
+    requestAnimationFrame(animate);
+  </script>
+</body>
 </html>
