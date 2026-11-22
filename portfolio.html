@@ -306,6 +306,7 @@ function enablePortfolioDragging() {
  const selector = '.brand, nav a, main h1, main h2, main p, .sectionline span, .card, .visual, .cardinfo > .arrow, .project, .project img, main a, footer > *, .skip';
  const positions = new Map();
  const rotations = new Map();
+ const resetTimers = new Map();
  let selected, rotationGesture, touchHold;
  let pinned = false;
  const frame = document.createElement('div');
@@ -356,6 +357,23 @@ function enablePortfolioDragging() {
   updateFrame();
  }
 
+ function cancelReset(target) {
+  clearTimeout(resetTimers.get(target));
+  resetTimers.delete(target);
+ }
+
+ function scheduleReset(target) {
+  cancelReset(target);
+  resetTimers.set(target, setTimeout(() => {
+   target.style.removeProperty('translate');
+   target.style.removeProperty('rotate');
+   positions.delete(target);
+   rotations.delete(target);
+   resetTimers.delete(target);
+   if (selected === target) updateFrame();
+  }, 5000));
+ }
+
  function angle(point, x, y) {
   return Math.atan2(point.clientY - y, point.clientX - x) * 180 / Math.PI;
  }
@@ -368,6 +386,7 @@ function enablePortfolioDragging() {
   const y = (rect.top + rect.bottom) / 2;
   rotationGesture = { target: selected, pointerId: event.pointerId, x, y, start: angle(event, x, y), degrees: rotations.get(selected) || 0 };
   pinned = true;
+  cancelReset(selected);
   handle.setPointerCapture(event.pointerId);
  });
  handle.addEventListener('pointermove', event => {
@@ -376,11 +395,15 @@ function enablePortfolioDragging() {
   const value = degrees + angle(event, x, y) - start;
   rotate(target, event.shiftKey ? Math.round(value / 15) * 15 : value);
  });
- handle.addEventListener('lostpointercapture', () => { rotationGesture = undefined; });
+ handle.addEventListener('lostpointercapture', () => {
+  if (rotationGesture) scheduleReset(rotationGesture.target);
+  rotationGesture = undefined;
+ });
  handle.addEventListener('keydown', event => {
   if (!selected || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
   event.preventDefault();
   rotate(selected, (rotations.get(selected) || 0) + (event.key === 'ArrowRight' ? 5 : -5));
+  scheduleReset(selected);
  });
  document.addEventListener('pointerover', event => {
   if (pinned || gesture || event.pointerType === 'touch') return;
@@ -417,6 +440,7 @@ function enablePortfolioDragging() {
     return;
    }
    gesture.dragging = true;
+   cancelReset(target);
    document.body.classList.add('portfolio-dragging');
    window.getSelection()?.removeAllRanges();
   }
@@ -435,6 +459,7 @@ function enablePortfolioDragging() {
  function finish() {
   clearTimeout(touchHold);
   if (!gesture) return;
+  if (gesture.dragging) scheduleReset(gesture.target);
   if (gesture.dragging || gesture.held) suppressClickUntil = performance.now() + 450;
   gesture = undefined;
   document.body.classList.remove('portfolio-dragging');
@@ -510,6 +535,8 @@ function enablePortfolioDragging() {
   finish();
   for (const target of positions.keys()) target.style.removeProperty('translate');
   positions.clear();
+  for (const timer of resetTimers.values()) clearTimeout(timer);
+  resetTimers.clear();
   for (const target of rotations.keys()) target.style.removeProperty('rotate');
   rotations.clear();
   rotationGesture = undefined;
