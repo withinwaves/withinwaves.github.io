@@ -76,6 +76,30 @@
  cursor: grabbing !important;
  user-select: none;
 }
+
+.portfolio-transform {
+ position: fixed;
+ z-index: 10;
+ pointer-events: none;
+ outline: 1px dashed var(--blue);
+}
+.portfolio-rotate {
+ position: absolute;
+ left: 50%;
+ top: 0;
+ translate: -50% -50%;
+ width: 32px;
+ height: 32px;
+ padding: 0;
+ border: 1px solid var(--blue);
+ border-radius: 50%;
+ background: var(--paper);
+ color: var(--plum);
+ font: 20px/1 system-ui, sans-serif;
+ cursor: grab;
+ pointer-events: auto;
+ touch-action: none;
+}
 </style>
 </head>
 <body>
@@ -281,6 +305,20 @@ function showHtmlIntro() {
 function enablePortfolioDragging() {
  const selector = '.brand, nav a, main h1, main h2, main p, .sectionline span, .card, .visual, .cardinfo > .arrow, .project, .project img, main a, footer > *, .skip';
  const positions = new Map();
+ const rotations = new Map();
+ let selected, rotationGesture, touchHold;
+ let pinned = false;
+ const frame = document.createElement('div');
+ frame.className = 'portfolio-transform';
+ frame.hidden = true;
+ const handle = document.createElement('button');
+ handle.type = 'button';
+ handle.className = 'portfolio-rotate';
+ handle.textContent = '↻';
+ handle.setAttribute('aria-label', 'Rotate selected element');
+ handle.title = 'Drag to rotate or use the arrow keys';
+ frame.append(handle);
+ document.body.append(frame);
  let gesture;
  let suppressClickUntil = 0;
 
@@ -288,9 +326,79 @@ function enablePortfolioDragging() {
   return node.closest(selector);
  }
 
+
+ function updateFrame() {
+  if (!selected?.isConnected || selected.closest('[hidden]')) {
+   selected = undefined;
+   pinned = false;
+   frame.hidden = true;
+   return;
+  }
+  const rect = selected.getBoundingClientRect();
+  frame.style.left = rect.left + 'px';
+  frame.style.top = rect.top + 'px';
+  frame.style.width = rect.width + 'px';
+  frame.style.height = rect.height + 'px';
+  handle.style.top = (rect.top < 20 ? rect.height : 0) + 'px';
+  handle.style.left = Math.max(18 - rect.left, Math.min(rect.width / 2, document.documentElement.clientWidth - 18 - rect.left)) + 'px';
+  frame.hidden = false;
+ }
+
+ function select(target, pin = false) {
+  selected = target;
+  pinned = pin;
+  updateFrame();
+ }
+
+ function rotate(target, degrees) {
+  rotations.set(target, degrees);
+  target.style.rotate = degrees + 'deg';
+  updateFrame();
+ }
+
+ function angle(point, x, y) {
+  return Math.atan2(point.clientY - y, point.clientX - x) * 180 / Math.PI;
+ }
+
+ handle.addEventListener('pointerdown', event => {
+  if (!selected || event.button !== 0 || !event.isPrimary) return;
+  event.stopPropagation();
+  const rect = selected.getBoundingClientRect();
+  const x = (rect.left + rect.right) / 2;
+  const y = (rect.top + rect.bottom) / 2;
+  rotationGesture = { target: selected, pointerId: event.pointerId, x, y, start: angle(event, x, y), degrees: rotations.get(selected) || 0 };
+  pinned = true;
+  handle.setPointerCapture(event.pointerId);
+ });
+ handle.addEventListener('pointermove', event => {
+  if (rotationGesture?.pointerId !== event.pointerId) return;
+  const { target, x, y, start, degrees } = rotationGesture;
+  const value = degrees + angle(event, x, y) - start;
+  rotate(target, event.shiftKey ? Math.round(value / 15) * 15 : value);
+ });
+ handle.addEventListener('lostpointercapture', () => { rotationGesture = undefined; });
+ handle.addEventListener('keydown', event => {
+  if (!selected || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+  event.preventDefault();
+  rotate(selected, (rotations.get(selected) || 0) + (event.key === 'ArrowRight' ? 5 : -5));
+ });
+ document.addEventListener('pointerover', event => {
+  if (pinned || gesture || event.pointerType === 'touch') return;
+  const target = pick(event.target);
+  if (target) select(target);
+ });
+ document.addEventListener('focusin', event => {
+  const target = pick(event.target);
+  if (target) select(target);
+ });
+ window.addEventListener('scroll', updateFrame, { passive: true });
+ window.addEventListener('resize', updateFrame);
+ window.addEventListener('hashchange', () => select(undefined));
+
  function begin(target, point, id, touch) {
   suppressClickUntil = 0;
   if (!target || gesture) return;
+  if (!touch) select(target, true);
   const position = positions.get(target) || { x: 0, y: 0 };
   gesture = {
    target, id, touch, position, rect: target.getBoundingClientRect(),
@@ -321,11 +429,13 @@ function enablePortfolioDragging() {
   };
   positions.set(target, next);
   target.style.translate = next.x + 'px ' + next.y + 'px';
+  select(target, true);
  }
 
  function finish() {
+  clearTimeout(touchHold);
   if (!gesture) return;
-  if (gesture.dragging) suppressClickUntil = performance.now() + 450;
+  if (gesture.dragging || gesture.held) suppressClickUntil = performance.now() + 450;
   gesture = undefined;
   document.body.classList.remove('portfolio-dragging');
  }
@@ -344,12 +454,20 @@ function enablePortfolioDragging() {
  }
 
  document.addEventListener('touchstart', event => {
+  if (frame.contains(event.target)) return;
   if (event.touches.length !== 1) {
    finish();
    return;
   }
   const point = event.changedTouches[0];
-  begin(pick(event.target), point, point.identifier, true);
+  const target = pick(event.target);
+  begin(target, point, point.identifier, true);
+  if (!target) return;
+  touchHold = setTimeout(() => {
+   if (gesture?.id !== point.identifier) return;
+   gesture.held = true;
+   select(target, true);
+  }, 320);
  }, { passive: true });
  document.addEventListener('touchmove', event => {
   if (!gesture?.touch) return;
@@ -362,10 +480,14 @@ function enablePortfolioDragging() {
   });
  }
 
+ document.addEventListener('contextmenu', event => {
+  if (gesture?.touch && pick(event.target) === gesture.target) event.preventDefault();
+ });
  document.addEventListener('dragstart', event => {
   if (pick(event.target)) event.preventDefault();
  });
  document.addEventListener('click', event => {
+  if (frame.contains(event.target)) return;
   if (event.detail && performance.now() < suppressClickUntil) {
    event.preventDefault();
    event.stopImmediatePropagation();
@@ -373,6 +495,7 @@ function enablePortfolioDragging() {
    return;
   }
   const target = pick(event.target);
+  select(target, Boolean(target));
   if (target && !target.closest('a')) {
    target.animate(
     [{ outline: '2px solid var(--blue)', outlineOffset: '3px' },
@@ -387,6 +510,10 @@ function enablePortfolioDragging() {
   finish();
   for (const target of positions.keys()) target.style.removeProperty('translate');
   positions.clear();
+  for (const target of rotations.keys()) target.style.removeProperty('rotate');
+  rotations.clear();
+  rotationGesture = undefined;
+  select(undefined);
  });
 }
 
