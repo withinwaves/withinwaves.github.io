@@ -42,13 +42,29 @@
  text-shadow: 2px 0 var(--cyan), -2px 0 var(--mauve);
 }
 .html-text-intro.is-settling .html-text-glitch {
- animation: settle-glitch var(--glitch-duration) steps(1, end) both;
+ animation: var(--glitch-motion) var(--glitch-duration) both;
 }
 @keyframes settle-glitch {
  0% { transform: translate(var(--glitch-x), var(--glitch-y)); text-shadow: 2px 0 var(--cyan), -2px 0 var(--mauve); }
- 28% { transform: translate(calc(var(--glitch-x) * -0.8), calc(var(--glitch-y) * -0.4)); text-shadow: -2px 0 var(--cyan); }
+ 28% { animation-timing-function: steps(1, end); transform: translate(calc(var(--glitch-x) * -0.8), calc(var(--glitch-y) * -0.4)); text-shadow: -2px 0 var(--cyan); }
  50% { transform: translate(calc(var(--glitch-x) * 0.4), calc(var(--glitch-y) * 0.3)); text-shadow: 1px 0 var(--cyan); }
  75%, 100% { transform: translate(0); text-shadow: none; }
+}
+@keyframes settle-drop {
+ 0% { transform: translate(var(--glitch-x), var(--glitch-y)) rotate(-2deg); }
+ 58% { transform: translate(1px, 4px) rotate(1deg); }
+ 76% { transform: translate(0, -2px); }
+ 100% { transform: translate(0); }
+}
+@keyframes settle-slide {
+ 0% { transform: translate(var(--glitch-x), var(--glitch-y)); text-shadow: -3px 0 var(--cyan); }
+ 36% { transform: translate(-5px, 0); text-shadow: 2px 0 var(--mauve); }
+ 65%, 100% { transform: translate(0); text-shadow: none; }
+}
+@keyframes settle-rise {
+ 0% { transform: translate(var(--glitch-x), var(--glitch-y)) skewX(-8deg); }
+ 45% { transform: translate(0, -4px) skewX(4deg); }
+ 70%, 100% { transform: translate(0); }
 }
 @media (prefers-reduced-motion: reduce) {
  .html-text-copy { opacity: 1; }
@@ -153,16 +169,27 @@ function showHtmlIntro() {
   'header a, main h1, main h2, main p, main .sectionline span, main a.back, main .project a, footer > *'
  );
  const transitions = [
-  { typing: 1320, hold: 220, settle: 640, x: -2, y: -7, density: 0.68 },
-  { typing: 1510, hold: 140, settle: 720, x: 4, y: -3, density: 0.52 },
-  { typing: 1190, hold: 300, settle: 810, x: -5, y: 3, density: 0.60 },
-  { typing: 1420, hold: 260, settle: 690, x: 2, y: -5, density: 0.74 }
+  { motion: 'settle-drop', x: -3, y: -18, pace: 1.4 },
+  { motion: 'settle-slide', x: 14, y: -2, pace: 0.7 },
+  { motion: 'settle-rise', x: -5, y: 12, pace: 1 },
+  { motion: 'settle-glitch', x: -13, y: -5, pace: 1.8 }
  ];
+ const between = (min, max) => min + Math.random() * (max - min);
  const entries = [];
+ let previousMotion;
+
  for (const target of targets) {
   if (target.closest('[hidden], noscript') || !target.textContent.trim()) continue;
 
-  const transition = transitions[entries.length % transitions.length];
+  const choices = transitions.filter(({ motion }) => motion !== previousMotion);
+  const transition = choices[Math.floor(Math.random() * choices.length)];
+  previousMotion = transition.motion;
+  const timing = {
+   typing: between(2200, 4300),
+   hold: between(300, 1050),
+   settle: between(900, 1600),
+   density: between(0.43, 0.85)
+  };
   const tag = target.localName;
   const markup = '<' + tag + '>' + target.innerHTML + '</' + tag + '>';
   const copy = document.createElement('span');
@@ -176,24 +203,25 @@ function showHtmlIntro() {
 
   const glitch = copy.cloneNode(true);
   glitch.className = 'html-text-glitch';
+  glitch.style.setProperty('--glitch-motion', transition.motion);
   glitch.style.setProperty('--glitch-x', transition.x + 'px');
   glitch.style.setProperty('--glitch-y', transition.y + 'px');
-  glitch.style.setProperty('--glitch-duration', transition.settle + 'ms');
+  glitch.style.setProperty('--glitch-duration', timing.settle + 'ms');
   glitch.setAttribute('aria-hidden', 'true');
   glitch.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
   const walker = document.createTreeWalker(glitch, NodeFilter.SHOW_TEXT);
   const letters = [];
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
    letters.push({ node, text: node.data });
-   node.data = glitchLetters(node.data, transition.density);
+   node.data = glitchLetters(node.data, timing.density);
   }
 
   const startsGlitched = target.matches('h1, .eyebrow, .brand');
-  const delay = Math.min(entries.length, 8) * 38;
+  const delay = between(0, 680);
   target.classList.add('html-text-intro');
   if (startsGlitched) target.classList.add('is-glitching');
   target.append(copy, code, glitch);
-  entries.push({ target, copy, code, glitch, letters, markup, delay, transition, startsGlitched, stage: -1 });
+  entries.push({ target, copy, code, glitch, letters, markup, delay, transition, timing, startsGlitched, stage: -1 });
  }
 
  const start = performance.now();
@@ -201,12 +229,12 @@ function showHtmlIntro() {
   let active = false;
   for (const entry of entries) {
    if (entry.stage === 3) continue;
-   const { target, copy, code, glitch, letters, markup, delay, transition, startsGlitched } = entry;
+   const { target, copy, code, glitch, letters, markup, delay, transition, timing, startsGlitched } = entry;
    const elapsed = now - start - delay;
-   const settleAt = (startsGlitched ? transition.typing * 0.65 : transition.typing) + transition.hold;
+   const settleAt = (startsGlitched ? timing.typing * 0.65 : timing.typing) + timing.hold;
    const settling = elapsed - settleAt;
 
-   if (settling >= transition.settle) {
+   if (settling >= timing.settle) {
     copy.replaceWith(...copy.childNodes);
     code.remove();
     glitch.remove();
@@ -218,18 +246,18 @@ function showHtmlIntro() {
    active = true;
    if (settling < 0) {
     if (!startsGlitched) {
-     const progress = Math.max(0, Math.min(1, elapsed / transition.typing));
-     code.textContent = markup.slice(0, Math.max(1, Math.floor(markup.length * progress)));
+     const progress = Math.max(0, Math.min(1, elapsed / timing.typing));
+     code.textContent = markup.slice(0, Math.max(1, Math.floor(markup.length * progress ** transition.pace)));
     }
     continue;
    }
 
-   const stage = Math.min(2, Math.floor((settling / transition.settle) * 3));
+   const stage = Math.min(2, Math.floor((settling / timing.settle) * 3));
    if (entry.stage === stage) continue;
    if (entry.stage < 0) {
     target.classList.add('is-glitching', 'is-settling');
    }
-   for (const { node, text } of letters) node.data = glitchLetters(text, transition.density * [1, 0.5, 0.18][stage]);
+   for (const { node, text } of letters) node.data = glitchLetters(text, timing.density * [1, 0.5, 0.18][stage]);
    entry.stage = stage;
   }
   if (active) requestAnimationFrame(animateText);
