@@ -154,11 +154,14 @@ window.addEventListener('hashchange',()=>{render();window.scrollTo(0,0);if(!deta
 document.getElementById('year').textContent=new Date().getFullYear();render();
 
 // Unicode combining marks create the Zalgo effect used by LingoJam.
-function glitchLetters(text, density) {
- const marks = ['\u030d\u0323', '\u0311\u0330', '\u0357\u0324', '\u0307\u0331'];
+function glitchLetters(text, density, scramble = 0) {
+ const marks = ['\u030d\u0323\u0338', '\u0311\u0330\u0307', '\u0357\u0324\u0334', '\u0307\u0331\u034f'];
+ const symbols = '▓▒░╳#%◇+⟊⟁';
  return [...text].map((letter, index) => {
-  if (!/\p{L}|\p{N}/u.test(letter) || (index * 7 % 11) / 11 >= density) return letter;
-  return letter + marks[index % marks.length];
+  if (/\s/u.test(letter)) return letter;
+  const replace = (index * 17 % 29) / 29 < scramble;
+  const glyph = replace ? symbols[index * 7 % symbols.length] : letter;
+  return (index * 7 % 11) / 11 < density ? glyph + marks[index % marks.length] : glyph;
  }).join('');
 }
 
@@ -186,6 +189,7 @@ function showHtmlIntro() {
   previousMotion = transition.motion;
   const timing = {
    typing: between(2200, 4300),
+   noise: between(380, 850),
    hold: between(300, 1050),
    settle: between(900, 1600),
    density: between(0.43, 0.85)
@@ -199,7 +203,7 @@ function showHtmlIntro() {
   const code = document.createElement('span');
   code.className = 'html-text-code';
   code.setAttribute('aria-hidden', 'true');
-  code.textContent = '<';
+  code.textContent = glitchLetters('<', 1, 1);
 
   const glitch = copy.cloneNode(true);
   glitch.className = 'html-text-glitch';
@@ -213,7 +217,7 @@ function showHtmlIntro() {
   const letters = [];
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
    letters.push({ node, text: node.data });
-   node.data = glitchLetters(node.data, timing.density);
+   node.data = glitchLetters(node.data, 1, 1);
   }
 
   const startsGlitched = target.matches('h1, .eyebrow, .brand');
@@ -246,8 +250,10 @@ function showHtmlIntro() {
    active = true;
    if (settling < 0) {
     if (!startsGlitched) {
+     const noise = Math.max(0, 1 - Math.max(0, elapsed) / timing.noise);
      const progress = Math.max(0, Math.min(1, elapsed / timing.typing));
-     code.textContent = markup.slice(0, Math.max(1, Math.floor(markup.length * progress ** transition.pace)));
+     const length = Math.max(1, Math.floor(markup.length * progress ** transition.pace), Math.ceil(noise * Math.min(12, markup.length)));
+     code.textContent = glitchLetters(markup.slice(0, length), noise, noise);
     }
     continue;
    }
@@ -257,7 +263,7 @@ function showHtmlIntro() {
    if (entry.stage < 0) {
     target.classList.add('is-glitching', 'is-settling');
    }
-   for (const { node, text } of letters) node.data = glitchLetters(text, timing.density * [1, 0.5, 0.18][stage]);
+   for (const { node, text } of letters) node.data = glitchLetters(text, timing.density * [1, 0.5, 0.18][stage], [0.86, 0.34, 0][stage]);
    entry.stage = stage;
   }
   if (active) requestAnimationFrame(animateText);
