@@ -33,10 +33,63 @@
       width: 100vw;
       height: 100vh;
     }
+
+    .game-hud {
+      position: fixed;
+      inset: max(16px, env(safe-area-inset-top)) 16px auto;
+      z-index: 1;
+      width: fit-content;
+      max-width: calc(100% - 32px);
+      padding: 12px 14px;
+      border: 1px solid #ffffff66;
+      border-radius: 14px;
+      background: #10101aef;
+      color: white;
+      font-size: 14px;
+    }
+    .game-hud p { margin: 0 0 10px; }
+    .game-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .game-hud button, .game-hud a {
+      padding: 7px 12px;
+      border: 1px solid #ffffff66;
+      border-radius: 20px;
+      background: #252535;
+      color: white;
+      font: inherit;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .game-hud button { background: #c7f464; color: #10101a; font-weight: 700; }
+    .game-hud :focus-visible, .wave-target:focus-visible { outline: 3px solid white; outline-offset: 4px; }
+    .wave-target {
+      position: fixed;
+      width: 56px;
+      height: 56px;
+      translate: -50% -50%;
+      border: 4px solid white;
+      border-radius: 50%;
+      background: #131323;
+      color: #c7f464;
+      box-shadow: 0 0 0 4px #131323, 0 0 25px #ffffffa0;
+      font: 24px/1 system-ui, sans-serif;
+      cursor: crosshair;
+    }
+    .wave-target[hidden] { display: none; }
+    .wave-target.gold { color: #ffda73; border-color: #ffda73; }
   </style>
 </head>
 <body>
   <canvas id="waves" aria-label="Interactive rainbow wave bar visual"></canvas>
+
+  <section class="game-hud" aria-label="Wave Catch">
+    <p id="game-message" role="status">Catch sparks in the waves. Gold sparks add time.</p>
+    <div class="game-controls">
+      <button id="game-start" type="button">Play Wave Catch</button>
+      <span id="game-score" hidden></span>
+      <a href="portfolio.html">Portfolio</a>
+    </div>
+  </section>
+  <button class="wave-target" id="wave-target" type="button" aria-label="Catch spark" hidden>✦</button>
 
   <script>
     const canvas = document.getElementById("waves");
@@ -255,6 +308,7 @@
     }
 
     function animate(time) {
+      updateGame(time);
       draw(time);
     }
 
@@ -263,6 +317,89 @@
     window.addEventListener("pointerdown", onMove, { passive: true });
     window.addEventListener("touchmove", onMove, { passive: true });
     window.addEventListener("touchstart", onMove, { passive: true });
+
+
+    const gameHud = document.querySelector(".game-hud");
+    const gameStart = document.getElementById("game-start");
+    const gameMessage = document.getElementById("game-message");
+    const gameScore = document.getElementById("game-score");
+    const waveTarget = document.getElementById("wave-target");
+    const bestKey = "wavvez:wave-catch-best";
+    let best = 0;
+    try { best = Number(localStorage.getItem(bestKey)) || 0; } catch {}
+    let round;
+
+    function spawnSpark(now) {
+      const gold = round.caught < 25 && (round.caught + 1) % 5 === 0;
+      const margin = 34;
+      const top = Math.min(height - margin, gameHud.getBoundingClientRect().bottom + margin);
+      const x = margin + Math.random() * Math.max(0, width - margin * 2);
+      const y = top + Math.random() * Math.max(0, height - top - margin);
+      waveTarget.style.left = x + "px";
+      waveTarget.style.top = Math.max(margin, y) + "px";
+      waveTarget.classList.toggle("gold", gold);
+      waveTarget.setAttribute("aria-label", gold ? "Catch gold spark for extra time" : "Catch spark");
+      round.target = { x, y, gold, expires: now + Math.max(1450, 3100 - round.caught * 75) };
+    }
+
+    function updateGame(now) {
+      if (!round) return;
+      if (now >= round.ends) {
+        best = Math.max(best, round.score);
+        try { localStorage.setItem(bestKey, String(best)); } catch {}
+        gameMessage.textContent = "Time’s up! Score " + round.score + " · Best " + best;
+        round = undefined;
+        waveTarget.hidden = true;
+        gameScore.hidden = true;
+        gameStart.textContent = "Play again";
+        gameStart.hidden = false;
+        gameStart.focus({ preventScroll: true });
+        return;
+      }
+      if (now >= round.target.expires) {
+        round.streak = 0;
+        spawnSpark(now);
+      }
+      const seconds = Math.ceil((round.ends - now) / 1000);
+      const status = round.score + " pts · " + seconds + "s" + (round.streak > 1 ? " · ×" + Math.min(5, round.streak) : "");
+      if (gameScore.textContent !== status) gameScore.textContent = status;
+    }
+
+    gameStart.addEventListener("click", event => {
+      const now = performance.now();
+      round = { ends: now + 30000, score: 0, streak: 0, caught: 0 };
+      gameMessage.textContent = "Catch sparks before they move.";
+      gameStart.hidden = true;
+      gameScore.hidden = false;
+      waveTarget.hidden = false;
+      spawnSpark(now);
+      updateGame(now);
+      // Pointer players aim at the target. Keyboard players can activate it with Enter or Space.
+      if (event.detail === 0) waveTarget.focus({ preventScroll: true });
+    });
+
+    canvas.addEventListener("pointerdown", () => {
+      if (round) round.streak = 0;
+    });
+    waveTarget.addEventListener("click", () => {
+      const now = performance.now();
+      if (!round || now >= round.ends || now >= round.target.expires) {
+        updateGame(now);
+        return;
+      }
+      const { x, y, gold } = round.target;
+      round.streak += 1;
+      round.caught += 1;
+      round.score += (gold ? 25 : 10) * Math.min(5, round.streak);
+      if (gold) round.ends += 3000;
+      onMove({ clientX: x, clientY: y });
+      pointer.energy = 1;
+      spawnSpark(now);
+      updateGame(now);
+    });
+    window.addEventListener("resize", () => {
+      if (round) spawnSpark(performance.now());
+    });
 
     resize();
     requestAnimationFrame(animate);
