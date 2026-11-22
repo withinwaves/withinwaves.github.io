@@ -17,6 +17,31 @@
 #collections .visual svg{width:clamp(32px,5vw,58px)}
 @media(max-width:900px){#collections{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:650px){#collections{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.html-intro {
+ position: fixed;
+ inset: 0;
+ z-index: 4;
+ margin: 0;
+ padding: clamp(18px, 4vw, 56px);
+ overflow: auto;
+ pointer-events: none;
+ background: var(--paper);
+ color: var(--plum);
+ font: 13px/1.5 ui-monospace, monospace;
+ white-space: pre-wrap;
+ overflow-wrap: anywhere;
+ animation: reveal-portfolio 1.2s both;
+}
+
+@keyframes reveal-portfolio {
+ 0%, 75% { opacity: 1; }
+ 100% { opacity: 0; visibility: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+ .html-intro { display: none; }
+}
 </style>
 </head>
 <body>
@@ -99,6 +124,31 @@ function render(){
 }
 window.addEventListener('hashchange',()=>{render();window.scrollTo(0,0);if(!detail.hidden)document.getElementById('detail-title').focus({preventScroll:true})});
 document.getElementById('year').textContent=new Date().getFullYear();render();
+
+function showHtmlIntro() {
+ if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+ const source = document.querySelector('.wrap').cloneNode(true);
+ source.querySelectorAll('[hidden], svg, img, noscript, [aria-hidden="true"]').forEach(element => element.remove());
+
+ // Keep the tags around the visible copy and drop empty visual containers.
+ [...source.querySelectorAll('*')].reverse().forEach(element => {
+  if (!element.textContent.trim() && element.localName !== 'br') element.remove();
+ });
+
+ const lines = [...source.querySelectorAll('header a, main h1, main h2, main p, main .sectionline span, main a.back, main .project a, footer > *')]
+  .map(element => element.outerHTML);
+
+ const intro = document.createElement('pre');
+ intro.className = 'html-intro';
+ intro.setAttribute('aria-hidden', 'true');
+ intro.textContent = lines.join('\n');
+ intro.addEventListener('animationend', () => intro.remove(), { once: true });
+ window.setTimeout(() => intro.remove(), 1500);
+ document.body.append(intro);
+}
+
+showHtmlIntro();
 </script>
 </body>
 </html>
