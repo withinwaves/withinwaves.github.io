@@ -22,11 +22,11 @@
 
     body {
       cursor: crosshair;
-      touch-action: none;
       user-select: none;
     }
 
     canvas {
+      touch-action: none;
       position: fixed;
       inset: 0;
       display: block;
@@ -76,6 +76,25 @@
     }
     .wave-target[hidden] { display: none; }
     .wave-target.gold { color: #ffda73; border-color: #ffda73; }
+    .game-hud { max-height: calc(100dvh - 32px); overflow: auto; }
+    .game-hud [hidden] { display: none; }
+    .scoreboard, .score-form { margin-top: 12px; }
+    .scoreboard summary { cursor: pointer; font-weight: 700; }
+    .scoreboard ol { margin: 8px 0; padding-inline-start: 24px; }
+    .scoreboard li { padding: 3px 0; overflow-wrap: anywhere; }
+    .scoreboard small { color: #d5d5e0; }
+    .score-form label { display: block; margin-bottom: 5px; }
+    .score-form input {
+      width: 11em;
+      max-width: 100%;
+      padding: 8px;
+      border: 1px solid #ffffff66;
+      border-radius: 8px;
+      background: #252535;
+      color: white;
+      font: 16px system-ui, sans-serif;
+      user-select: text;
+    }
   </style>
 </head>
 <body>
@@ -88,6 +107,18 @@
       <span id="game-score" hidden></span>
       <a href="portfolio.html">Portfolio</a>
     </div>
+    <form id="score-form" class="score-form" hidden>
+      <label for="player-name">Name for the scoreboard</label>
+      <div class="game-controls">
+        <input id="player-name" name="player" maxlength="24" required autocomplete="nickname">
+        <button type="submit">Save score</button>
+      </div>
+    </form>
+    <details id="scoreboard" class="scoreboard">
+      <summary>Scoreboard</summary>
+      <ol id="score-entries"></ol>
+      <small id="score-note"></small>
+    </details>
   </section>
   <button class="wave-target" id="wave-target" type="button" aria-label="Catch spark" hidden>✦</button>
 
@@ -328,6 +359,69 @@
     let best = 0;
     try { best = Number(localStorage.getItem(bestKey)) || 0; } catch {}
     let round;
+    let pendingScore;
+    const scoreForm = document.getElementById("score-form");
+    const playerName = document.getElementById("player-name");
+    const scoreboard = document.getElementById("scoreboard");
+    const scoreEntries = document.getElementById("score-entries");
+    const scoreNote = document.getElementById("score-note");
+    const scoreboardKey = "wavvez:wave-catch-scoreboard";
+    let scores = readScores() || [];
+
+    function readScores() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(scoreboardKey) || "[]");
+        return Array.isArray(saved) ? saved.filter(entry =>
+          typeof entry?.name === "string" && Number.isSafeInteger(entry.score) && entry.score >= 0
+        ) : [];
+      } catch {
+        return null;
+      }
+    }
+
+    function renderScores() {
+      scoreEntries.replaceChildren(...scores.map(({ name, score }) => {
+        const row = document.createElement("li");
+        row.textContent = name + " · " + score + " pts";
+        return row;
+      }));
+      scoreNote.textContent = scores.length ? "Scores on this browser." : "No scores yet on this browser.";
+    }
+
+    scoreForm.addEventListener("submit", event => {
+      event.preventDefault();
+      const name = playerName.value.trim();
+      if (pendingScore === undefined) return;
+      if (!name) {
+        playerName.setCustomValidity("Enter a name.");
+        playerName.reportValidity();
+        return;
+      }
+      const entry = { name, score: pendingScore };
+      scores = [...(readScores() || scores), entry]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10);
+      let saved = true;
+      try { localStorage.setItem(scoreboardKey, JSON.stringify(scores)); } catch { saved = false; }
+      pendingScore = undefined;
+      scoreForm.hidden = true;
+      renderScores();
+      scoreboard.open = true;
+      gameMessage.textContent = scores.includes(entry)
+        ? (saved ? "Score added to the scoreboard." : "Score shown for this visit. Browser storage is unavailable.")
+        : "This score fell outside the top 10.";
+      gameStart.focus({ preventScroll: true });
+    });
+
+    playerName.addEventListener("input", () => playerName.setCustomValidity(""));
+    window.addEventListener("storage", event => {
+      if (event.key === scoreboardKey || event.key === null) {
+        scores = readScores() || [];
+        renderScores();
+      }
+    });
+    renderScores();
+
 
     function spawnSpark(now) {
       const gold = round.caught < 25 && (round.caught + 1) % 5 === 0;
@@ -348,6 +442,8 @@
         best = Math.max(best, round.score);
         try { localStorage.setItem(bestKey, String(best)); } catch {}
         gameMessage.textContent = "Time’s up! Score " + round.score + " · Best " + best;
+        pendingScore = round.score;
+        scoreForm.hidden = false;
         round = undefined;
         waveTarget.hidden = true;
         gameScore.hidden = true;
@@ -367,6 +463,9 @@
 
     gameStart.addEventListener("click", event => {
       const now = performance.now();
+      pendingScore = undefined;
+      scoreForm.hidden = true;
+      scoreboard.open = false;
       round = { ends: now + 30000, score: 0, streak: 0, caught: 0 };
       gameMessage.textContent = "Catch sparks before they move.";
       gameStart.hidden = true;
