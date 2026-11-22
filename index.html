@@ -108,16 +108,16 @@
       <a href="portfolio.html">Portfolio</a>
     </div>
     <form id="score-form" class="score-form" hidden>
-      <label for="player-name">Name for the scoreboard</label>
+      <label for="player-name">Public name for the scoreboard</label>
       <div class="game-controls">
         <input id="player-name" name="player" maxlength="24" required autocomplete="nickname">
         <button type="submit">Save score</button>
       </div>
     </form>
     <details id="scoreboard" class="scoreboard">
-      <summary>Scoreboard</summary>
+      <summary>Global scoreboard</summary>
       <ol id="score-entries"></ol>
-      <small id="score-note"></small>
+      <small id="score-note">Loading scores…</small>
     </details>
   </section>
   <button class="wave-target" id="wave-target" type="button" aria-label="Catch spark" hidden>✦</button>
@@ -365,63 +365,74 @@
     const scoreboard = document.getElementById("scoreboard");
     const scoreEntries = document.getElementById("score-entries");
     const scoreNote = document.getElementById("score-note");
-    const scoreboardKey = "wavvez:wave-catch-scoreboard";
-    let scores = readScores() || [];
+    const saveScore = scoreForm.querySelector("button");
+    const scoresUrl = "https://wavvez-wave-catch-scores.cottonshell1.chatgpt.site/scores";
+    let refreshNumber = 0;
 
-    function readScores() {
+    async function refreshScores() {
+      const requestNumber = ++refreshNumber;
       try {
-        const saved = JSON.parse(localStorage.getItem(scoreboardKey) || "[]");
-        return Array.isArray(saved) ? saved.filter(entry =>
-          typeof entry?.name === "string" && Number.isSafeInteger(entry.score) && entry.score >= 0
-        ) : [];
+        const response = await fetch(scoresUrl, { signal: AbortSignal.timeout(8000) });
+        if (!response.ok) throw new Error("Scoreboard unavailable");
+        const scores = await response.json();
+        if (requestNumber !== refreshNumber) return;
+        scoreEntries.replaceChildren(...scores.map(({ name, score }) => {
+          const row = document.createElement("li");
+          row.textContent = name + " · " + score + " pts";
+          return row;
+        }));
+        scoreNote.textContent = scores.length ? "Global top 10" : "No global scores yet.";
       } catch {
-        return null;
+        if (requestNumber === refreshNumber) scoreNote.textContent = "Can’t refresh scores. Retrying shortly.";
       }
     }
 
-    function renderScores() {
-      scoreEntries.replaceChildren(...scores.map(({ name, score }) => {
-        const row = document.createElement("li");
-        row.textContent = name + " · " + score + " pts";
-        return row;
-      }));
-      scoreNote.textContent = scores.length ? "Scores on this browser." : "No scores yet on this browser.";
-    }
-
-    scoreForm.addEventListener("submit", event => {
+    scoreForm.addEventListener("submit", async event => {
       event.preventDefault();
+      if (!pendingScore || saveScore.disabled) return;
       const name = playerName.value.trim();
-      if (pendingScore === undefined) return;
       if (!name) {
         playerName.setCustomValidity("Enter a name.");
         playerName.reportValidity();
         return;
       }
-      const entry = { name, score: pendingScore };
-      scores = [...(readScores() || scores), entry]
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 10);
-      let saved = true;
-      try { localStorage.setItem(scoreboardKey, JSON.stringify(scores)); } catch { saved = false; }
-      pendingScore = undefined;
-      scoreForm.hidden = true;
-      renderScores();
-      scoreboard.open = true;
-      gameMessage.textContent = scores.includes(entry)
-        ? (saved ? "Score added to the scoreboard." : "Score shown for this visit. Browser storage is unavailable.")
-        : "This score fell outside the top 10.";
-      gameStart.focus({ preventScroll: true });
+      saveScore.disabled = true;
+      gameStart.disabled = true;
+      playerName.readOnly = true;
+      gameMessage.textContent = "Saving your score…";
+      try {
+        const response = await fetch(scoresUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...pendingScore, name }),
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!response.ok) throw new Error("Score could not be saved");
+        pendingScore = undefined;
+        scoreForm.hidden = true;
+        scoreboard.open = true;
+        gameMessage.textContent = "Score saved to the global scoreboard.";
+        refreshScores();
+      } catch {
+        gameMessage.textContent = "Couldn’t save your score. Try again.";
+      } finally {
+        saveScore.disabled = false;
+        gameStart.disabled = false;
+        playerName.readOnly = false;
+        (scoreForm.hidden ? gameStart : saveScore).focus({ preventScroll: true });
+      }
     });
 
     playerName.addEventListener("input", () => playerName.setCustomValidity(""));
-    window.addEventListener("storage", event => {
-      if (event.key === scoreboardKey || event.key === null) {
-        scores = readScores() || [];
-        renderScores();
-      }
+    scoreboard.addEventListener("toggle", () => {
+      if (scoreboard.open) refreshScores();
     });
-    renderScores();
-
+    window.setInterval(() => {
+      if (scoreboard.open && !document.hidden) refreshScores();
+    }, 8000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && scoreboard.open) refreshScores();
+    });
 
     function spawnSpark(now) {
       const gold = round.caught < 25 && (round.caught + 1) % 5 === 0;
@@ -442,7 +453,7 @@
         best = Math.max(best, round.score);
         try { localStorage.setItem(bestKey, String(best)); } catch {}
         gameMessage.textContent = "Time’s up! Score " + round.score + " · Best " + best;
-        pendingScore = round.score;
+        pendingScore = { score: round.score, id: crypto.randomUUID() };
         scoreForm.hidden = false;
         round = undefined;
         waveTarget.hidden = true;
