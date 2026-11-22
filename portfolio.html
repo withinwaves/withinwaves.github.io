@@ -22,20 +22,47 @@
  position: fixed;
  inset: 0;
  z-index: 4;
- margin: 0;
- padding: clamp(18px, 4vw, 56px);
- overflow: auto;
+ display: grid;
+ grid-template-rows: auto minmax(0, 1fr);
+ overflow: hidden;
  pointer-events: none;
- background: var(--paper);
- color: var(--plum);
- font: 13px/1.5 ui-monospace, monospace;
+ background: #19151e;
+ color: #e2dce6;
+ font: clamp(11px, 1.25vw, 14px)/1.6 ui-monospace, monospace;
+ animation: reveal-portfolio 1.45s both;
+}
+
+.html-intro-status {
+ padding: 12px clamp(18px, 4vw, 56px);
+ border-bottom: 1px solid #594660;
+ color: #8ee4ec;
+}
+
+.html-intro-output {
+ margin: 0;
+ padding: 16px clamp(18px, 4vw, 56px);
+ overflow: hidden;
+ font: inherit;
  white-space: pre-wrap;
  overflow-wrap: anywhere;
- animation: reveal-portfolio 1.2s both;
+}
+
+.html-intro-output::after {
+ content: '▌';
+ color: #8ee4ec;
+}
+
+.html-intro.preview .html-intro-output {
+ animation: console-glitch 160ms steps(1, end) both;
+}
+
+@keyframes console-glitch {
+ 35% { transform: translateX(4px); text-shadow: -2px 0 #1bb0ce, 2px 0 #e08acb; }
+ 70% { transform: translateX(-2px); text-shadow: 2px 0 #1bb0ce, -2px 0 #e08acb; }
 }
 
 @keyframes reveal-portfolio {
- 0%, 75% { opacity: 1; }
+ 0%, 86% { opacity: 1; }
  100% { opacity: 0; visibility: hidden; }
 }
 
@@ -139,13 +166,38 @@ function showHtmlIntro() {
  const lines = [...source.querySelectorAll('header a, main h1, main h2, main p, main .sectionline span, main a.back, main .project a, footer > *')]
   .map(element => element.outerHTML);
 
- const intro = document.createElement('pre');
+ const intro = document.createElement('div');
  intro.className = 'html-intro';
  intro.setAttribute('aria-hidden', 'true');
- intro.textContent = lines.join('\n');
- intro.addEventListener('animationend', () => intro.remove(), { once: true });
- window.setTimeout(() => intro.remove(), 1500);
+
+ const status = document.createElement('div');
+ status.className = 'html-intro-status';
+ status.textContent = '› Console / portfolio.html';
+
+ const output = document.createElement('pre');
+ output.className = 'html-intro-output';
+ intro.append(status, output);
+ intro.addEventListener('animationend', event => {
+  if (event.target === intro) intro.remove();
+ });
+ window.setTimeout(() => intro.remove(), 1600);
  document.body.append(intro);
+
+ const code = lines.join('\n');
+ const started = performance.now();
+ function typeCode(now) {
+  if (!intro.isConnected) return;
+  const progress = Math.min(1, (now - started) / 1030);
+  output.textContent = code.slice(0, Math.floor(code.length * progress));
+  output.scrollTop = output.scrollHeight;
+  if (progress < 1) {
+   requestAnimationFrame(typeCode);
+  } else {
+   status.textContent = '› Opening preview…';
+   intro.classList.add('preview');
+  }
+ }
+ requestAnimationFrame(typeCode);
 }
 
 showHtmlIntro();
