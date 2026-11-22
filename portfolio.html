@@ -70,6 +70,12 @@
  .html-text-copy { opacity: 1; }
  .html-text-code, .html-text-intro.is-glitching .html-text-glitch { display: none; }
 }
+
+:is(.brand, nav a, main h1, main h2, main p, .sectionline span, .card, .visual, .cardinfo > .arrow, .project, .project img, main a, footer > *, .skip) { cursor: grab; }
+.portfolio-dragging, .portfolio-dragging * {
+ cursor: grabbing !important;
+ user-select: none;
+}
 </style>
 </head>
 <body>
@@ -270,6 +276,121 @@ function showHtmlIntro() {
  }
  requestAnimationFrame(animateText);
 }
+
+
+function enablePortfolioDragging() {
+ const selector = '.brand, nav a, main h1, main h2, main p, .sectionline span, .card, .visual, .cardinfo > .arrow, .project, .project img, main a, footer > *, .skip';
+ const positions = new Map();
+ let gesture;
+ let suppressClickUntil = 0;
+
+ function pick(node) {
+  return node.closest(selector);
+ }
+
+ function begin(target, point, id, touch) {
+  suppressClickUntil = 0;
+  if (!target || gesture) return;
+  const position = positions.get(target) || { x: 0, y: 0 };
+  gesture = {
+   target, id, touch, position, rect: target.getBoundingClientRect(),
+   x: point.clientX, y: point.clientY, started: performance.now(), dragging: false
+  };
+ }
+
+ function move(point, event) {
+  const { target, rect, position, x, y, touch } = gesture;
+  const dx = point.clientX - x;
+  const dy = point.clientY - y;
+  if (!gesture.dragging) {
+   if (Math.hypot(dx, dy) < 6) return;
+   if (touch && (performance.now() - gesture.started < 220 || !event.cancelable)) {
+    finish();
+    return;
+   }
+   gesture.dragging = true;
+   document.body.classList.add('portfolio-dragging');
+   window.getSelection()?.removeAllRanges();
+  }
+  if (event.cancelable) event.preventDefault();
+  // Keep a draggable element reachable after it moves.
+  const clamp = (delta, min, max) => Math.max(Math.min(0, min), Math.min(Math.max(0, max), delta));
+  const next = {
+   x: position.x + clamp(dx, 24 - rect.right, document.documentElement.clientWidth - 24 - rect.left),
+   y: position.y + clamp(dy, 24 - rect.bottom, window.innerHeight - 24 - rect.top)
+  };
+  positions.set(target, next);
+  target.style.translate = next.x + 'px ' + next.y + 'px';
+ }
+
+ function finish() {
+  if (!gesture) return;
+  if (gesture.dragging) suppressClickUntil = performance.now() + 450;
+  gesture = undefined;
+  document.body.classList.remove('portfolio-dragging');
+ }
+
+ document.addEventListener('pointerdown', event => {
+  if (event.pointerType === 'touch' || !event.isPrimary || event.button !== 0) return;
+  begin(pick(event.target), event, event.pointerId, false);
+ });
+ window.addEventListener('pointermove', event => {
+  if (gesture && !gesture.touch && gesture.id === event.pointerId) move(event, event);
+ });
+ for (const type of ['pointerup', 'pointercancel']) {
+  window.addEventListener(type, event => {
+   if (gesture && !gesture.touch && gesture.id === event.pointerId) finish();
+  });
+ }
+
+ document.addEventListener('touchstart', event => {
+  if (event.touches.length !== 1) {
+   finish();
+   return;
+  }
+  const point = event.changedTouches[0];
+  begin(pick(event.target), point, point.identifier, true);
+ }, { passive: true });
+ document.addEventListener('touchmove', event => {
+  if (!gesture?.touch) return;
+  const point = [...event.changedTouches].find(touch => touch.identifier === gesture.id);
+  if (point) move(point, event);
+ }, { passive: false });
+ for (const type of ['touchend', 'touchcancel']) {
+  document.addEventListener(type, event => {
+   if (gesture?.touch && [...event.changedTouches].some(touch => touch.identifier === gesture.id)) finish();
+  });
+ }
+
+ document.addEventListener('dragstart', event => {
+  if (pick(event.target)) event.preventDefault();
+ });
+ document.addEventListener('click', event => {
+  if (event.detail && performance.now() < suppressClickUntil) {
+   event.preventDefault();
+   event.stopImmediatePropagation();
+   suppressClickUntil = 0;
+   return;
+  }
+  const target = pick(event.target);
+  if (target && !target.closest('a')) {
+   target.animate(
+    [{ outline: '2px solid var(--blue)', outlineOffset: '3px' },
+     { outline: '2px solid transparent', outlineOffset: '3px' }],
+    { duration: 330 }
+   );
+  }
+ }, true);
+ window.addEventListener('blur', finish);
+ document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  finish();
+  for (const target of positions.keys()) target.style.removeProperty('translate');
+  positions.clear();
+ });
+}
+
+enablePortfolioDragging();
 
 showHtmlIntro();
 </script>
