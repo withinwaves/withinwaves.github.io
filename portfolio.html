@@ -18,56 +18,43 @@
 @media(max-width:900px){#collections{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:650px){#collections{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
-.html-intro {
- position: fixed;
+.html-text-intro {
+ position: relative;
+}
+
+.html-text-copy {
+ animation: reveal-text 720ms var(--text-delay) both;
+}
+
+.html-text-code {
+ position: absolute;
  inset: 0;
- z-index: 4;
- display: grid;
- grid-template-rows: auto minmax(0, 1fr);
  overflow: hidden;
  pointer-events: none;
- background: #19151e;
- color: #e2dce6;
- font: clamp(11px, 1.25vw, 14px)/1.6 ui-monospace, monospace;
- animation: reveal-portfolio 1.45s both;
-}
-
-.html-intro-status {
- padding: 12px clamp(18px, 4vw, 56px);
- border-bottom: 1px solid #594660;
- color: #8ee4ec;
-}
-
-.html-intro-output {
- margin: 0;
- padding: 16px clamp(18px, 4vw, 56px);
- overflow: hidden;
- font: inherit;
+ color: var(--plum);
+ font: 500 clamp(8px, 1vw, 12px)/1.2 ui-monospace, monospace;
+ letter-spacing: normal;
+ text-transform: none;
+ text-decoration: none;
  white-space: pre-wrap;
  overflow-wrap: anywhere;
+ animation: reveal-markup 720ms var(--text-delay) both;
 }
 
-.html-intro-output::after {
- content: '▌';
- color: #8ee4ec;
+@keyframes reveal-text {
+ 0%, 45% { opacity: 0; }
+ 100% { opacity: 1; }
 }
 
-.html-intro.preview .html-intro-output {
- animation: console-glitch 160ms steps(1, end) both;
-}
-
-@keyframes console-glitch {
- 35% { transform: translateX(4px); text-shadow: -2px 0 #1bb0ce, 2px 0 #e08acb; }
- 70% { transform: translateX(-2px); text-shadow: 2px 0 #1bb0ce, -2px 0 #e08acb; }
-}
-
-@keyframes reveal-portfolio {
- 0%, 86% { opacity: 1; }
- 100% { opacity: 0; visibility: hidden; }
+@keyframes reveal-markup {
+ 0%, 45% { opacity: 1; }
+ 55% { transform: translateX(1px); text-shadow: -1px 0 var(--cyan); }
+ 100% { opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
- .html-intro { display: none; }
+ .html-text-copy { animation: none; }
+ .html-text-code { display: none; }
 }
 </style>
 </head>
@@ -155,49 +142,50 @@ document.getElementById('year').textContent=new Date().getFullYear();render();
 function showHtmlIntro() {
  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
- const source = document.querySelector('.wrap').cloneNode(true);
- source.querySelectorAll('[hidden], svg, img, noscript, [aria-hidden="true"]').forEach(element => element.remove());
+ const targets = document.querySelectorAll(
+  'header a, main h1, main h2, main p, main .sectionline span, main a.back, main .project a, footer > *'
+ );
+ const entries = [];
+ for (const target of targets) {
+  if (target.closest('[hidden], noscript') || !target.textContent.trim()) continue;
 
- // Keep the tags around the visible copy and drop empty visual containers.
- [...source.querySelectorAll('*')].reverse().forEach(element => {
-  if (!element.textContent.trim() && element.localName !== 'br') element.remove();
- });
+  const tag = target.localName;
+  const markup = '<' + tag + '>' + target.innerHTML + '</' + tag + '>';
+  const copy = document.createElement('span');
+  copy.className = 'html-text-copy';
+  copy.append(...target.childNodes);
 
- const lines = [...source.querySelectorAll('header a, main h1, main h2, main p, main .sectionline span, main a.back, main .project a, footer > *')]
-  .map(element => element.outerHTML);
+  const code = document.createElement('span');
+  code.className = 'html-text-code';
+  code.setAttribute('aria-hidden', 'true');
+  code.textContent = '<';
 
- const intro = document.createElement('div');
- intro.className = 'html-intro';
- intro.setAttribute('aria-hidden', 'true');
-
- const status = document.createElement('div');
- status.className = 'html-intro-status';
- status.textContent = '› Console / portfolio.html';
-
- const output = document.createElement('pre');
- output.className = 'html-intro-output';
- intro.append(status, output);
- intro.addEventListener('animationend', event => {
-  if (event.target === intro) intro.remove();
- });
- window.setTimeout(() => intro.remove(), 1600);
- document.body.append(intro);
-
- const code = lines.join('\n');
- const started = performance.now();
- function typeCode(now) {
-  if (!intro.isConnected) return;
-  const progress = Math.min(1, (now - started) / 1030);
-  output.textContent = code.slice(0, Math.floor(code.length * progress));
-  output.scrollTop = output.scrollHeight;
-  if (progress < 1) {
-   requestAnimationFrame(typeCode);
-  } else {
-   status.textContent = '› Opening preview…';
-   intro.classList.add('preview');
-  }
+  const delay = Math.min(entries.length, 7) * 22;
+  target.style.setProperty('--text-delay', delay + 'ms');
+  target.classList.add('html-text-intro');
+  target.append(copy, code);
+  entries.push({ target, copy, code, markup, delay });
  }
- requestAnimationFrame(typeCode);
+
+ const start = performance.now();
+ function typeMarkup(now) {
+  const elapsed = now - start;
+  for (const { code, markup, delay } of entries) {
+   const progress = Math.max(0, Math.min(1, (elapsed - delay) / 260));
+   code.textContent = markup.slice(0, Math.max(1, Math.floor(markup.length * progress)));
+  }
+  if (elapsed < 414) requestAnimationFrame(typeMarkup);
+ }
+ requestAnimationFrame(typeMarkup);
+
+ window.setTimeout(() => {
+  for (const { target, copy, code } of entries) {
+   copy.replaceWith(...copy.childNodes);
+   code.remove();
+   target.classList.remove('html-text-intro');
+   target.style.removeProperty('--text-delay');
+  }
+ }, 900);
 }
 
 showHtmlIntro();
