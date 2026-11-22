@@ -392,7 +392,19 @@ function enablePortfolioDragging() {
 
 enablePortfolioDragging();
 
-showHtmlIntro();
+function playPortfolioIntroOnce() {
+ const visitKey = 'wavvez:portfolio-visited';
+ try {
+  if (localStorage.getItem(visitKey) === '1') return;
+  localStorage.setItem(visitKey, '1');
+ } catch {
+  // Skip the intro when browser settings prevent remembering a visit.
+  return;
+ }
+ showHtmlIntro();
+}
+
+playPortfolioIntroOnce();
 </script>
 </body>
 </html>
